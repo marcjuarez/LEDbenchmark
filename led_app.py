@@ -96,14 +96,14 @@ with st.sidebar:
     v1, v2 = st.columns(2)
     val_lm = v1.number_input("Lúmenes (lm)", min_value=0.01, step=0.1)
     val_vf = v2.number_input("Vf Típ. (V)", min_value=0.01, step=0.01)
-    
-    # Valores Estándar (65mA / 25°C)
     current_ma = st.number_input("mA", min_value=1, value=65) 
     temp = st.radio("Temp. Test (°C)", [25, 85], index=0, horizontal=True) 
     
     st.divider()
-    st.markdown("**Precio**")
-    price_eur = st.number_input("Precio (€)", min_value=0.01, step=0.01, format="%.2f")
+    st.markdown("**Precio (Alta Precisión)**")
+    # --- CAMBIO A 6 DECIMALES ---
+    price_eur = st.number_input("Precio (€)", min_value=0.000001, step=0.000001, format="%.6f")
+    
     test_date = st.date_input("Fecha del Test", datetime.now())
 
     if st.button("🚀 Registrar Entrada", use_container_width=True):
@@ -122,7 +122,7 @@ with st.sidebar:
                 "Phosphor Tech": final_phos, "CCT (K)": cct, "CRI": cri, 
                 "Flux Bin": bin_lm, "Lumen Typ": val_lm, "Vf Bin": bin_vf, 
                 "Vf Typ": val_vf, "Current (mA)": current_ma, "Temp (°C)": temp, 
-                "Price (€)": round(price_eur, 2), "lm/W": round(lm_per_w, 2), 
+                "Price (€)": round(price_eur, 6), "lm/W": round(lm_per_w, 2), 
                 "€/klm": round(eur_per_klm, 4)
             }
             df = pd.concat([df, pd.DataFrame([new_entry])], ignore_index=True)
@@ -136,15 +136,12 @@ if not df.empty:
 
     with tab1:
         st.subheader("Filtros de Búsqueda Avanzada")
-        
-        # FILA 1: Origen y Marca
         r1c1, r1c2, r1c3, r1c4 = st.columns(4)
         f_mfr = r1c1.multiselect("Marca", sorted(df["Manufacturer"].unique()), df["Manufacturer"].unique())
         f_pkg = r1c2.multiselect("Package", sorted(df["Package"].unique()), df["Package"].unique())
         f_phos = r1c3.multiselect("Tecnología", sorted(df["Phosphor Tech"].unique()), df["Phosphor Tech"].unique())
         f_country = r1c4.multiselect("País", sorted(df["Country"].unique()), df["Country"].unique())
 
-        # FILA 2: Detalles Técnicos (RESTAURADOS)
         r2c1, r2c2, r2c3, r2c4 = st.columns(4)
         f_cct = r2c1.multiselect("CCT (K)", sorted(df["CCT (K)"].unique()), df["CCT (K)"].unique())
         f_cri = r2c2.multiselect("CRI", sorted(df["CRI"].unique()), df["CRI"].unique())
@@ -163,9 +160,9 @@ if not df.empty:
                 filtered_df, x="Price (€)", y="lm/W", color="Manufacturer",
                 color_discrete_map=BRAND_COLORS, size="Lumen Typ",
                 text="Part Number", 
-                hover_data=["Date", "€/klm", "Flux Bin", "Entered By"],
+                hover_data={"Price (€)": ":.6f", "€/klm": ":.4f", "Date": True, "Flux Bin": True},
                 height=750,
-                title="Mapa de Rendimiento (Todas las entradas)"
+                title="Mapa de Rendimiento"
             )
             max_p = filtered_df["Price (€)"].max() if not filtered_df.empty else 1
             fig.update_xaxes(range=[0, max_p * 1.15], title_text="Precio (€)")
@@ -174,7 +171,7 @@ if not df.empty:
             fig.update_layout(margin=dict(r=150))
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.warning("No hay datos que coincidan con estos filtros.")
+            st.warning("No hay datos para estos filtros.")
 
     with tab2:
         st.subheader("Análisis de Evolución con Tendencia")
@@ -197,9 +194,9 @@ if not df.empty:
         
         if len(h_df) >= 2:
             c1, c2 = st.columns(2)
-            fig_eff = px.scatter(h_df, x="Date", y="lm/W", color=color_param, trendline="ols", title=f"Tendencia Eficacia: {sel_pn_evol}")
+            fig_eff = px.scatter(h_df, x="Date", y="lm/W", color=color_param, trendline="ols", title="Tendencia Eficacia")
             c1.plotly_chart(fig_eff, use_container_width=True)
-            fig_cost = px.scatter(h_df, x="Date", y="€/klm", color=color_param, trendline="ols", title=f"Tendencia Coste: {sel_pn_evol}")
+            fig_cost = px.scatter(h_df, x="Date", y="€/klm", color=color_param, trendline="ols", title="Tendencia Coste (€/klm)")
             c2.plotly_chart(fig_cost, use_container_width=True)
         else:
             st.info("Necesitas al menos 2 registros para calcular líneas de tendencia.")
@@ -207,34 +204,32 @@ if not df.empty:
     with tab3:
         st.subheader("🛠️ Mantenimiento de Base de Datos")
         
-        # --- EDITOR DE DATOS ---
+        # --- CONFIGURACIÓN DEL EDITOR PARA ALTA PRECISIÓN ---
         df_sorted = df.sort_values("Date", ascending=False)
         edited_df = st.data_editor(
             df_sorted, 
             use_container_width=True, 
             height=700,
+            column_config={
+                "Price (€)": st.column_config.NumberColumn(format="%.6f"),
+                "€/klm": st.column_config.NumberColumn(format="%.4f")
+            },
             num_rows="fixed"
         )
         
         st.divider()
         
-        # --- SECCIÓN DE BORRADO ---
         col_del1, col_del2 = st.columns([3, 1])
         with col_del1:
-            # ID visual para el selector de borrado
             df_display = df_sorted.copy()
             df_display['id'] = df_display['Date'].dt.strftime('%Y-%m-%d %H:%M') + " | " + df_display['Manufacturer'] + " | " + df_display['Part Number']
-            rows_to_delete = st.multiselect(
-                "Selecciona registros para ELIMINAR:",
-                options=df_display['id'].tolist()
-            )
+            rows_to_delete = st.multiselect("Selecciona registros para ELIMINAR:", options=df_display['id'].tolist())
         
         with col_del2:
             st.write(" ") 
-            if st.button("⚠️ Guardar y Borrar", use_container_width=True, type="primary"):
+            if st.button("⚠️ Guardar Cambios y Borrar", use_container_width=True, type="primary"):
                 final_df = edited_df.copy()
                 if rows_to_delete:
-                    # Identificar filas a borrar mediante la misma lógica de ID
                     final_df['temp_id'] = pd.to_datetime(final_df['Date']).dt.strftime('%Y-%m-%d %H:%M') + " | " + final_df['Manufacturer'] + " | " + final_df['Part Number']
                     final_df = final_df[~final_df['temp_id'].isin(rows_to_delete)]
                     final_df = final_df.drop(columns=['temp_id'])
@@ -246,4 +241,4 @@ if not df.empty:
         st.divider()
         st.download_button("📂 Backup CSV", df.to_csv(index=False), "led_benchmark_backup.csv")
 else:
-    st.info("La base de datos está vacía.")
+    st.info("Base de datos vacía.")
