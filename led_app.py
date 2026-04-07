@@ -65,7 +65,6 @@ with st.sidebar:
     final_mfr = st.text_input("Marca") if selected_mfr == "Other..." else selected_mfr
 
     st.divider()
-
     existing_pns = sorted(df[df["Manufacturer"] == final_mfr]["Part Number"].unique().tolist()) if not df.empty else []
     pn_selection = st.selectbox("Producto (PN)", ["+ Añadir Nuevo PN"] + existing_pns)
     
@@ -94,12 +93,13 @@ with st.sidebar:
     b1, b2 = st.columns(2)
     bin_lm = b1.text_input("Flux Bin")
     bin_vf = b2.text_input("Vf Bin")
-
     v1, v2 = st.columns(2)
     val_lm = v1.number_input("Lúmenes (lm)", min_value=0.01, step=0.1)
     val_vf = v2.number_input("Vf Típ. (V)", min_value=0.01, step=0.01)
-    current_ma = st.number_input("mA", min_value=1, value=65) # Estándar 65mA
-    temp = st.radio("Temp. Test (°C)", [25, 85], index=0, horizontal=True) # Estándar 25°C
+    
+    # Valores Estándar (65mA / 25°C)
+    current_ma = st.number_input("mA", min_value=1, value=65) 
+    temp = st.radio("Temp. Test (°C)", [25, 85], index=0, horizontal=True) 
     
     st.divider()
     st.markdown("**Precio**")
@@ -132,19 +132,19 @@ with st.sidebar:
 
 # --- PANEL PRINCIPAL ---
 if not df.empty:
-    tab1, tab2, tab3 = st.tabs(["📊 Mapa de Mercado", "📈 Evolución", "📋 Historial Completo"])
+    tab1, tab2, tab3 = st.tabs(["📊 Mapa de Mercado", "📈 Evolución", "🛠️ Historial y Edición"])
 
     with tab1:
         st.subheader("Filtros de Búsqueda Avanzada")
         
-        # FILTROS RESTAURADOS - FILA 1
+        # FILA 1: Origen y Marca
         r1c1, r1c2, r1c3, r1c4 = st.columns(4)
         f_mfr = r1c1.multiselect("Marca", sorted(df["Manufacturer"].unique()), df["Manufacturer"].unique())
         f_pkg = r1c2.multiselect("Package", sorted(df["Package"].unique()), df["Package"].unique())
         f_phos = r1c3.multiselect("Tecnología", sorted(df["Phosphor Tech"].unique()), df["Phosphor Tech"].unique())
         f_country = r1c4.multiselect("País", sorted(df["Country"].unique()), df["Country"].unique())
 
-        # FILTROS RESTAURADOS - FILA 2
+        # FILA 2: Detalles Técnicos (RESTAURADOS)
         r2c1, r2c2, r2c3, r2c4 = st.columns(4)
         f_cct = r2c1.multiselect("CCT (K)", sorted(df["CCT (K)"].unique()), df["CCT (K)"].unique())
         f_cri = r2c2.multiselect("CRI", sorted(df["CRI"].unique()), df["CRI"].unique())
@@ -159,16 +159,15 @@ if not df.empty:
         ]
 
         if not filtered_df.empty:
-            plot_df = filtered_df
             fig = px.scatter(
-                plot_df, x="Price (€)", y="lm/W", color="Manufacturer",
+                filtered_df, x="Price (€)", y="lm/W", color="Manufacturer",
                 color_discrete_map=BRAND_COLORS, size="Lumen Typ",
                 text="Part Number", 
-                hover_data=["Date", "€/klm", "Flux Bin", "Vf Bin", "Entered By"],
+                hover_data=["Date", "€/klm", "Flux Bin", "Entered By"],
                 height=750,
-                title="Mapa de Rendimiento (Todos los registros)"
+                title="Mapa de Rendimiento (Todas las entradas)"
             )
-            max_p = plot_df["Price (€)"].max() if not plot_df.empty else 1
+            max_p = filtered_df["Price (€)"].max() if not filtered_df.empty else 1
             fig.update_xaxes(range=[0, max_p * 1.15], title_text="Precio (€)")
             fig.update_yaxes(rangemode="tozero", title_text="Eficacia (lm/W)")
             fig.update_traces(textposition='top right', marker=dict(sizeref=2.5, sizemode='area', line=dict(width=0.5, color='white')))
@@ -189,7 +188,6 @@ if not df.empty:
             countries_in_pn = sorted(df[(df["Manufacturer"] == sel_mfr_evol) & (df["Part Number"] == sel_pn_evol)]["Country"].unique())
             sel_country_evol = st.selectbox("3. País:", ["Todos"] + countries_in_pn)
         
-        # Lógica de filtrado
         if sel_country_evol == "Todos":
             h_df = df[(df["Manufacturer"] == sel_mfr_evol) & (df["Part Number"] == sel_pn_evol)].sort_values("Date")
             color_param = "Country"
@@ -207,8 +205,45 @@ if not df.empty:
             st.info("Necesitas al menos 2 registros para calcular líneas de tendencia.")
 
     with tab3:
-        st.subheader("Base de Datos Histórica")
-        st.dataframe(df.sort_values("Date", ascending=False), use_container_width=True, height=850)
-        st.download_button("📂 Descargar CSV", df.to_csv(index=False), "led_benchmark_full.csv")
+        st.subheader("🛠️ Mantenimiento de Base de Datos")
+        
+        # --- EDITOR DE DATOS ---
+        df_sorted = df.sort_values("Date", ascending=False)
+        edited_df = st.data_editor(
+            df_sorted, 
+            use_container_width=True, 
+            height=700,
+            num_rows="fixed"
+        )
+        
+        st.divider()
+        
+        # --- SECCIÓN DE BORRADO ---
+        col_del1, col_del2 = st.columns([3, 1])
+        with col_del1:
+            # ID visual para el selector de borrado
+            df_display = df_sorted.copy()
+            df_display['id'] = df_display['Date'].dt.strftime('%Y-%m-%d %H:%M') + " | " + df_display['Manufacturer'] + " | " + df_display['Part Number']
+            rows_to_delete = st.multiselect(
+                "Selecciona registros para ELIMINAR:",
+                options=df_display['id'].tolist()
+            )
+        
+        with col_del2:
+            st.write(" ") 
+            if st.button("⚠️ Guardar y Borrar", use_container_width=True, type="primary"):
+                final_df = edited_df.copy()
+                if rows_to_delete:
+                    # Identificar filas a borrar mediante la misma lógica de ID
+                    final_df['temp_id'] = pd.to_datetime(final_df['Date']).dt.strftime('%Y-%m-%d %H:%M') + " | " + final_df['Manufacturer'] + " | " + final_df['Part Number']
+                    final_df = final_df[~final_df['temp_id'].isin(rows_to_delete)]
+                    final_df = final_df.drop(columns=['temp_id'])
+                
+                save_data(final_df)
+                st.success("Cambios aplicados.")
+                st.rerun()
+
+        st.divider()
+        st.download_button("📂 Backup CSV", df.to_csv(index=False), "led_benchmark_backup.csv")
 else:
     st.info("La base de datos está vacía.")
