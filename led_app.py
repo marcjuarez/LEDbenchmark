@@ -2,11 +2,15 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import os
+from pathlib import Path
 from datetime import datetime
 
 # --- CONFIGURACIÓN DE LA APP ---
 st.set_page_config(page_title="LED Roadmap Pro", layout="wide")
-DB_FILE = "led_database.csv"
+DEFAULT_CLOUD_DIR = Path("/mount/data")
+DATA_DIR = Path(os.getenv("LED_DB_DIR", str(DEFAULT_CLOUD_DIR if DEFAULT_CLOUD_DIR.exists() else Path("data"))))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DB_FILE = DATA_DIR / "led_database.csv"
 
 # --- CONSTANTES ---
 EU_COUNTRIES = ["Spain", "Germany", "France", "Italy", "United Kingdom", "Netherlands", "Poland", "Sweden"]
@@ -18,7 +22,7 @@ BRAND_COLORS = {
 
 # --- FUNCIONES DE APOYO ---
 def load_data():
-    if os.path.exists(DB_FILE):
+    if DB_FILE.exists():
         try:
             df = pd.read_csv(DB_FILE)
             if "Date" in df.columns:
@@ -252,6 +256,7 @@ if not df.empty:
                 st.rerun()
 
         st.divider()
+        st.caption(f"Base de datos activa: {DB_FILE}")
         st.download_button("📂 Backup CSV", df.to_csv(index=False), "led_benchmark_backup.csv")
     with tab4:
         st.subheader("Base de datos world-wide y comparativas")
