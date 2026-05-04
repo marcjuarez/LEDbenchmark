@@ -29,9 +29,9 @@ def load_data():
             st.error(f"Error al leer el CSV: {e}")
             return pd.DataFrame()
     return pd.DataFrame(columns=[
-        "Date", "Entered By", "Country", "Manufacturer", "Part Number", "Package", 
-        "Phosphor Tech", "CCT (K)", "CRI", "Flux Bin", "Lumen Typ", "Vf Bin", 
-        "Vf Typ", "Current (mA)", "Temp (°C)", "Price (€)", "lm/W", "€/klm"
+        "Date", "Entered By", "Country", "Geographic Area", "Manufacturer", "Part Number", "Package",
+        "Phosphor Tech", "CCT (K)", "CRI", "Flux Bin", "Lumen Typ", "Vf Bin",
+        "Vf Typ", "Current (mA)", "Temp (°C)", "Price (€)", "lm/W", "€/klm", "Datasheet URL", "Data Source"
     ])
 
 def save_data(df):
@@ -52,6 +52,7 @@ st.title("💡 LED Benchmark: Roadmap & Analytics (€)")
 # --- BARRA LATERAL: REGISTRO ---
 with st.sidebar:
     st.header("👤 Analista y Región")
+    geo_area = st.selectbox("Área geográfica", ["Europe", "North America", "Latin America", "Asia", "Middle East", "Africa", "Oceania", "Other"] )
     user_name = st.text_input("Nombre de la persona", placeholder="Ej. Juan Pérez")
     
     country_opts = get_options(df, "Country", EU_COUNTRIES)
@@ -66,12 +67,15 @@ with st.sidebar:
 
     st.divider()
     existing_pns = sorted(df[df["Manufacturer"] == final_mfr]["Part Number"].unique().tolist()) if not df.empty else []
+    auto_from_history = st.checkbox("Autocompletar campos faltantes desde historial/datasheet local", value=True)
     pn_selection = st.selectbox("Producto (PN)", ["+ Añadir Nuevo PN"] + existing_pns)
     
     d_pn, d_pkg, d_phos, d_cct, d_cri = "", "3030", "YAG traditional", 4000, 80
+    ds_url_default = ""
     if pn_selection != "+ Añadir Nuevo PN":
         last_info = df[df["Part Number"] == pn_selection].iloc[-1]
         d_pn, d_pkg, d_phos, d_cct, d_cri = pn_selection, str(last_info["Package"]), str(last_info.get("Phosphor Tech", "YAG traditional")), int(last_info["CCT (K)"]), int(last_info["CRI"])
+        ds_url_default = str(last_info.get("Datasheet URL", ""))
         st.success(f"Cargado: {pn_selection}")
 
     pn = st.text_input("Número de Parte", value=d_pn) if pn_selection == "+ Añadir Nuevo PN" else d_pn
@@ -104,6 +108,7 @@ with st.sidebar:
     # --- CAMBIO A 6 DECIMALES ---
     price_eur = st.number_input("Precio (€)", min_value=0.000001, step=0.000001, format="%.6f")
     
+    datasheet_url = st.text_input("URL Datasheet (opcional)", value=ds_url_default)
     test_date = st.date_input("Fecha del Test", datetime.now())
 
     if st.button("🚀 Registrar Entrada", use_container_width=True):
@@ -115,15 +120,23 @@ with st.sidebar:
             lm_per_w = val_lm / power if power > 0 else 0
             eur_per_klm = (price_eur / val_lm) * 1000
             
+            if auto_from_history and pn_selection == "+ Añadir Nuevo PN" and not df.empty:
+                hist = df[(df["Manufacturer"] == final_mfr) & (df["Part Number"] == pn)].sort_values("Date")
+                if not hist.empty:
+                    ref = hist.iloc[-1]
+                    if not final_pkg: final_pkg = str(ref.get("Package", final_pkg))
+                    if not final_phos: final_phos = str(ref.get("Phosphor Tech", final_phos))
+                    if (not datasheet_url) and ("Datasheet URL" in ref): datasheet_url = str(ref.get("Datasheet URL", ""))
+
             new_entry = {
                 "Date": full_datetime.strftime("%Y-%m-%d %H:%M:%S"),
-                "Entered By": user_name, "Country": final_country,
+                "Entered By": user_name, "Country": final_country, "Geographic Area": geo_area,
                 "Manufacturer": final_mfr, "Part Number": pn, "Package": final_pkg,
                 "Phosphor Tech": final_phos, "CCT (K)": cct, "CRI": cri, 
                 "Flux Bin": bin_lm, "Lumen Typ": val_lm, "Vf Bin": bin_vf, 
                 "Vf Typ": val_vf, "Current (mA)": current_ma, "Temp (°C)": temp, 
-                "Price (€)": round(price_eur, 6), "lm/W": round(lm_per_w, 2), 
-                "€/klm": round(eur_per_klm, 4)
+                "Price (€)": round(price_eur, 6), "lm/W": round(lm_per_w, 2),
+                "€/klm": round(eur_per_klm, 4), "Datasheet URL": datasheet_url, "Data Source": "Manual + Datasheet" if datasheet_url else "Manual"
             }
             df = pd.concat([df, pd.DataFrame([new_entry])], ignore_index=True)
             save_data(df)
@@ -132,7 +145,7 @@ with st.sidebar:
 
 # --- PANEL PRINCIPAL ---
 if not df.empty:
-    tab1, tab2, tab3 = st.tabs(["📊 Mapa de Mercado", "📈 Evolución", "🛠️ Historial y Edición"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Mapa de Mercado", "📈 Evolución", "🛠️ Historial y Edición", "🌍 Comparativa WW"])
 
     with tab1:
         st.subheader("Filtros de Búsqueda Avanzada")
@@ -240,5 +253,29 @@ if not df.empty:
 
         st.divider()
         st.download_button("📂 Backup CSV", df.to_csv(index=False), "led_benchmark_backup.csv")
+    with tab4:
+        st.subheader("Base de datos world-wide y comparativas")
+        ww = df.copy()
+        if "Geographic Area" not in ww.columns:
+            ww["Geographic Area"] = "Unknown"
+        c1, c2 = st.columns(2)
+        with c1:
+            sel_area = st.multiselect("Área geográfica", sorted(ww["Geographic Area"].dropna().unique()), default=sorted(ww["Geographic Area"].dropna().unique()))
+        with c2:
+            sel_pn = st.multiselect("Part Number", sorted(ww["Part Number"].dropna().unique()), default=[])
+
+        ww_f = ww[ww["Geographic Area"].isin(sel_area)] if sel_area else ww
+        if sel_pn:
+            ww_f = ww_f[ww_f["Part Number"].isin(sel_pn)]
+
+        st.dataframe(ww_f.sort_values("Date", ascending=False), use_container_width=True, height=360)
+        comp = ww_f.groupby(["Geographic Area", "Manufacturer"], dropna=False).agg(
+            leds=("Part Number", "count"),
+            precio_prom=("Price (€)", "mean"),
+            eficacia_prom=("lm/W", "mean"),
+            coste_prom=("€/klm", "mean")
+        ).reset_index()
+        st.dataframe(comp, use_container_width=True)
+
 else:
     st.info("Base de datos vacía.")
